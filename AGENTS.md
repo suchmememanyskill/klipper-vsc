@@ -35,6 +35,7 @@ The user said Klipper source may be referenced if useful, and to ask if cloning 
 - If unsure or lacking necessary information, ask the user.
 - Keep this file updated with new requests, current implementation progress, and relevant context so the work can be resumed at any time.
 - Follow-up agents must also update this file with their current status, progress, blockers, and relevant implementation context before they stop.
+- After every new feature, change, session, or similar work item, make a new git commit that clearly outlines the changes.
 
 ## Current Progress
 
