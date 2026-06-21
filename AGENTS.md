@@ -75,6 +75,7 @@ The user said Klipper source may be referenced if useful, and to ask if cloning 
 - Fixed peek/render failures for macros that combine Klipper single-brace expressions with Jinja object literals such as `default({})`. The renderer now normalizes Klipper `{expression}` output tags to standard Nunjucks `{{ expression }}` tags before parsing, while preserving `{% ... %}` blocks and `{# ... #}` comments unchanged.
 - Render preview, peek render, and render-and-run now force a fresh Moonraker printer object query before evaluating the macro when connected, so rendered expressions are based on current printer state rather than the previous cache snapshot.
 - Visible condition hints now force a quiet Moonraker object refresh every 5 seconds before repainting `-> True` / `-> False`, while still clearing hints when disconnected and refreshing immediately on editor changes.
+- Added a GitHub Actions workflow at `.github/workflows/package-extension.yml` that runs on push, pull request, and manual dispatch. It installs dependencies with `npm ci`, compiles the extension, packages a commit-specific VSIX with `@vscode/vsce`, and uploads it as a workflow artifact.
 - Installed npm dependencies with `npm install`.
 - Verified the project compiles with `npm run compile`.
 
