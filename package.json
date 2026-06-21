@@ -1,0 +1,148 @@
+{
+  "name": "klipper-vsc",
+  "displayName": "Klipper VSC",
+  "description": "VS Code language tools for Klipper configuration files with Moonraker-powered macro assistance.",
+  "version": "0.0.1",
+  "publisher": "local-dev",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:klipper",
+    "onCommand:klipper.setMoonrakerConnection",
+    "onCommand:klipper.connectMoonraker",
+    "onCommand:klipper.refreshPrinterObjects",
+    "onCommand:klipper.renderSelectionOrMacro",
+    "onCommand:klipper.peekRenderedSelectionOrMacro",
+    "onCommand:klipper.runSelectionOrMacro"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "klipper",
+        "aliases": [
+          "Klipper",
+          "klipper"
+        ],
+        "extensions": [
+          ".cfg"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "klipper",
+        "scopeName": "source.klipper",
+        "path": "./syntaxes/klipper.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Klipper VSC",
+      "properties": {
+        "klipper.moonrakerUrl": {
+          "type": "string",
+          "default": "ws://localhost:7125/websocket",
+          "description": "Moonraker WebSocket URL."
+        },
+        "klipper.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable diagnostics for unresolved printer object references inside Jinja expressions."
+        },
+        "klipper.conditionHints.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline true/false annotations for Jinja if and elif conditions that can be evaluated locally."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "klipper.setMoonrakerConnection",
+        "title": "Klipper: Set Moonraker Connection"
+      },
+      {
+        "command": "klipper.connectMoonraker",
+        "title": "Klipper: Connect to Moonraker"
+      },
+      {
+        "command": "klipper.refreshPrinterObjects",
+        "title": "Klipper: Refresh Printer Objects"
+      },
+      {
+        "command": "klipper.renderSelectionOrMacro",
+        "title": "Klipper: Render Selection or Macro"
+      },
+      {
+        "command": "klipper.peekRenderedSelectionOrMacro",
+        "title": "Klipper: Peek Rendered Selection or Macro"
+      },
+      {
+        "command": "klipper.runSelectionOrMacro",
+        "title": "Klipper: Render Selection or Macro and Run on Printer"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "klipper.renderSelectionOrMacro",
+          "when": "editorLangId == klipper",
+          "group": "navigation@50"
+        },
+        {
+          "command": "klipper.peekRenderedSelectionOrMacro",
+          "when": "editorLangId == klipper",
+          "group": "navigation@51"
+        },
+        {
+          "command": "klipper.runSelectionOrMacro",
+          "when": "editorLangId == klipper",
+          "group": "navigation@52"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "klipper.setMoonrakerConnection"
+        },
+        {
+          "command": "klipper.connectMoonraker"
+        },
+        {
+          "command": "klipper.refreshPrinterObjects"
+        },
+        {
+          "command": "klipper.renderSelectionOrMacro"
+        },
+        {
+          "command": "klipper.peekRenderedSelectionOrMacro"
+        },
+        {
+          "command": "klipper.runSelectionOrMacro"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "nunjucks": "^3.2.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/nunjucks": "^3.2.6",
+    "@types/vscode": "^1.92.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  }
+}
