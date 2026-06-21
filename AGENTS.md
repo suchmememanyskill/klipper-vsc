@@ -27,6 +27,7 @@ Additional requested feature:
 - Render cleanup should also remove comments from `;` or `#` onward before whitespace cleanup, and trim leading/trailing whitespace from retained lines.
 - Fix rendering of Klipper single-brace macro expressions such as `{global.extruder_temp.purging}` so they are evaluated instead of emitted literally.
 - Condition hints should not show `-> False` when a variable cannot be resolved. If a context-specific parameter is missing but has a Jinja `default(...)`, use the default for subsequent `{% set ... %}` variables, such as `{% set state = params.STATE|default('normal') %}`.
+- Evaluate non-literal `default(...)` fallback expressions for condition-hint `{% set %}` variables, such as `{% set bed_temp = params.BED_TEMP|default(printer.heater_bed.target if printer.heater_bed.target > 0 else 60)|float %}`.
 
 The user said Klipper source may be referenced if useful, and to ask if cloning Klipper into a temp directory is needed.
 
@@ -70,6 +71,7 @@ The user said Klipper source may be referenced if useful, and to ask if cloning 
 - Restored condition-hint reference validation before rendering conditions. Unresolved variables now skip the hint instead of rendering misleading `-> False`, while defaults from earlier `{% set ... = ...|default(...) %}` blocks are still respected.
 - Added temporary condition-hint logging to the `Klipper VSC` output channel. It reports activation, condition hint controller initialization, visible editor language IDs, connection/enabled state, cached object count, visible line count, detected condition count, rendered hint count, skipped count, and one-time evaluation failure details. Decorations now attach immediately after the Jinja condition block instead of the end of the physical line.
 - Fixed condition evaluation failures caused by rendering all prior `{% set ... %}` blocks with the Klipper single-brace Nunjucks environment. Condition hints now evaluate in a standard Jinja/Nunjucks environment and use a resolved context built from supported prior set blocks, avoiding parse failures on defaults like `default({})`. Also fixed bracket-path set alias resolution by preserving quote delimiters while masking string contents.
+- Fixed condition-hint set-variable resolution for non-literal `default(...)` fallbacks. Supported `{% set %}` expressions are now evaluated through the condition Nunjucks environment once their real references resolve, so defaults such as `printer.heater_bed.target if printer.heater_bed.target > 0 else 60` populate variables like `bed_temp`. Jinja inline `if` / `else` keywords are ignored by reference validation instead of being treated as unresolved variables.
 - Installed npm dependencies with `npm install`.
 - Verified the project compiles with `npm run compile`.
 

@@ -225,6 +225,7 @@ function installKlipperCompatibleFilters(environment: nunjucks.Environment): voi
     });
   });
   environment.addFilter('trim', (value: unknown) => stringifyFilterValue(value).trim());
+  environment.addFilter('__klipperJson', (value: unknown) => JSON.stringify({ value }));
 }
 
 function stringifyFilterValue(value: unknown): string {
@@ -293,6 +294,11 @@ function resolveExpressionValue(
   expression: string,
   known: Map<string, KnownValue>
 ): { resolved: boolean; value: unknown } {
+  const evaluated = evaluateKnownExpressionValue(expression, known);
+  if (evaluated.resolved) {
+    return evaluated;
+  }
+
   const defaultValue = parseDefaultFilterValue(expression);
   const baseExpression = stripTopLevelFilters(expression);
   const reference = findExpressionReferences(baseExpression)[0];
@@ -310,6 +316,46 @@ function resolveExpressionValue(
   }
 
   return defaultValue;
+}
+
+function evaluateKnownExpressionValue(
+  expression: string,
+  known: Map<string, KnownValue>
+): { resolved: boolean; value: unknown } {
+  if (!expressionReferencesResolve(expression, known)) {
+    return {
+      resolved: false,
+      value: undefined
+    };
+  }
+
+  try {
+    const rendered = conditionEnv.renderString(
+      `{{ (${expression}) | __klipperJson }}`,
+      knownValuesToContext(known)
+    ).trim();
+    const parsed = JSON.parse(rendered) as { value?: unknown };
+    if (!Object.prototype.hasOwnProperty.call(parsed, 'value')) {
+      return {
+        resolved: false,
+        value: undefined
+      };
+    }
+
+    return {
+      resolved: true,
+      value: parsed.value
+    };
+  } catch {
+    return {
+      resolved: false,
+      value: undefined
+    };
+  }
+}
+
+function knownValuesToContext(known: Map<string, KnownValue>): Record<string, unknown> {
+  return Object.fromEntries([...known.entries()].map(([name, knownValue]) => [name, knownValue.value]));
 }
 
 function resolveReferenceValue(
@@ -364,7 +410,7 @@ function findExpressionReferences(expression: string): Array<{ expression: strin
     if (
       previous === '|' ||
       previous === '.' ||
-      ['and', 'or', 'not', 'in', 'is', 'true', 'false', 'none'].includes(word)
+      ['and', 'or', 'not', 'in', 'is', 'if', 'else', 'true', 'false', 'none'].includes(word)
     ) {
       continue;
     }
