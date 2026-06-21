@@ -1,3 +1,6 @@
+> [!WARNING]
+> This repository is AI generated. Use at your own risk!
+
 # Klipper VSC
 
 VS Code extension project for writing Klipper configuration files with Moonraker-assisted macro tooling.
