@@ -25,6 +25,7 @@ let output: vscode.OutputChannel | undefined;
 let renderPreviewProvider: RenderPreviewProvider | undefined;
 let conditionHints: ConditionHintsController | undefined;
 let conditionHintsRefreshInterval: NodeJS.Timeout | undefined;
+let conditionHintsRefreshInFlight = false;
 
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Klipper VSC');
@@ -34,8 +35,8 @@ export function activate(context: vscode.ExtensionContext): void {
   renderPreviewProvider = new RenderPreviewProvider();
   conditionHints = new ConditionHintsController(objectCache, () => client?.isConnected ?? false, output);
   conditionHintsRefreshInterval = setInterval(() => {
-    conditionHints?.refresh();
-  }, 1000);
+    void refreshConditionHintsFromMoonraker();
+  }, 5000);
 
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBar.command = 'klipper.connectMoonraker';
@@ -97,7 +98,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('klipper.setMoonrakerConnection', async () => setMoonrakerConnection(context)),
     vscode.commands.registerCommand('klipper.connectMoonraker', async () => connectMoonraker(context)),
-    vscode.commands.registerCommand('klipper.refreshPrinterObjects', async () => refreshPrinterObjects()),
+    vscode.commands.registerCommand('klipper.refreshPrinterObjects', async () => refreshPrinterObjects({ forceList: true })),
     vscode.commands.registerCommand('klipper.renderSelectionOrMacro', async () => renderSelectionOrMacro()),
     vscode.commands.registerCommand('klipper.peekRenderedSelectionOrMacro', async () => peekRenderedSelectionOrMacro()),
     vscode.commands.registerCommand('klipper.runSelectionOrMacro', async () => runSelectionOrMacro())
@@ -202,7 +203,7 @@ async function connectMoonraker(context: vscode.ExtensionContext, promptForUrl =
     await client.connect();
     setStatus('$(plug) Klipper: connected', `Connected to ${url}`);
     output?.appendLine('Moonraker connected; refreshing printer objects and condition hints.');
-    await refreshPrinterObjects();
+    await refreshPrinterObjects({ forceList: true });
     vscode.window.showInformationMessage('Connected to Moonraker.');
   } catch (error) {
     setStatus('$(debug-disconnect) Klipper: disconnected', `Failed to connect to ${url}`);
@@ -211,29 +212,94 @@ async function connectMoonraker(context: vscode.ExtensionContext, promptForUrl =
   }
 }
 
-async function refreshPrinterObjects(): Promise<void> {
+interface RefreshPrinterObjectsOptions {
+  silent?: boolean;
+  refreshHints?: boolean;
+  forceList?: boolean;
+}
+
+async function refreshPrinterObjects(options: RefreshPrinterObjectsOptions = {}): Promise<boolean> {
+  const silent = options.silent ?? false;
+  const refreshHints = options.refreshHints ?? true;
+  const forceList = options.forceList ?? false;
+
   if (!client?.isConnected) {
-    vscode.window.showWarningMessage('Connect to Moonraker before refreshing printer objects.');
-    return;
+    if (!silent) {
+      vscode.window.showWarningMessage('Connect to Moonraker before refreshing printer objects.');
+    }
+    return false;
   }
 
-  setStatus('$(sync~spin) Klipper: refreshing', 'Refreshing Moonraker printer object cache');
+  if (!silent) {
+    setStatus('$(sync~spin) Klipper: refreshing', 'Refreshing Moonraker printer object cache');
+  }
 
   try {
-    const listed = await client.call<{ objects: string[] }>('printer.objects.list');
-    const queryObjects = Object.fromEntries(listed.objects.map((name) => [name, null]));
+    const objectNames = forceList || !objectCache || objectCache.objectNames.length === 0
+      ? (await client.call<{ objects: string[] }>('printer.objects.list')).objects
+      : objectCache.objectNames;
+    const queryObjects = Object.fromEntries(objectNames.map((name) => [name, null]));
     const queried = await client.call<{ status: Record<string, unknown> }>('printer.objects.query', {
       objects: queryObjects
     });
     objectCache?.replace(queried.status);
     diagnostics?.refreshAll();
-    conditionHints?.refresh();
-    setStatus('$(plug) Klipper: connected', `${listed.objects.length} printer objects cached`);
-    output?.appendLine(`Cached ${listed.objects.length} Moonraker printer objects.`);
+    if (refreshHints) {
+      conditionHints?.refresh();
+    }
+    if (!silent) {
+      setStatus('$(plug) Klipper: connected', `${objectNames.length} printer objects cached`);
+      output?.appendLine(`Cached ${objectNames.length} Moonraker printer objects.`);
+    }
+    return true;
   } catch (error) {
-    setStatus('$(warning) Klipper: refresh failed', 'Printer object refresh failed');
-    vscode.window.showErrorMessage(`Could not refresh printer objects: ${errorMessage(error)}`);
+    if (silent) {
+      output?.appendLine(`Could not refresh printer objects: ${errorMessage(error)}`);
+    } else {
+      setStatus('$(warning) Klipper: refresh failed', 'Printer object refresh failed');
+      vscode.window.showErrorMessage(`Could not refresh printer objects: ${errorMessage(error)}`);
+    }
+    return false;
   }
+}
+
+async function refreshConditionHintsFromMoonraker(): Promise<void> {
+  if (conditionHintsRefreshInFlight) {
+    return;
+  }
+
+  conditionHintsRefreshInFlight = true;
+  try {
+    if (client?.isConnected && hasVisibleKlipperEditor()) {
+      await refreshPrinterObjects({
+        silent: true,
+        refreshHints: false,
+        forceList: false
+      });
+    }
+    conditionHints?.refresh();
+  } finally {
+    conditionHintsRefreshInFlight = false;
+  }
+}
+
+function hasVisibleKlipperEditor(): boolean {
+  return vscode.window.visibleTextEditors.some((editor) => editor.document.languageId === 'klipper');
+}
+
+async function getPrinterStatusForRender(): Promise<Record<string, unknown>> {
+  if (client?.isConnected) {
+    const refreshed = await refreshPrinterObjects({
+      silent: true,
+      refreshHints: true,
+      forceList: true
+    });
+    if (!refreshed) {
+      throw new Error('Could not refresh Moonraker printer objects before rendering.');
+    }
+  }
+
+  return objectCache?.status ?? {};
 }
 
 async function renderSelectionOrMacro(): Promise<void> {
@@ -245,7 +311,7 @@ async function renderSelectionOrMacro(): Promise<void> {
 
   try {
     const source = getSelectionOrCurrentMacro(editor);
-    const rendered = renderTemplate(source.text, objectCache?.status ?? {});
+    const rendered = renderTemplate(source.text, await getPrinterStatusForRender());
     const document = await vscode.workspace.openTextDocument({
       language: 'gcode',
       content: rendered
@@ -265,7 +331,7 @@ async function peekRenderedSelectionOrMacro(): Promise<void> {
 
   try {
     const source = getSelectionOrCurrentMacro(editor);
-    const rendered = renderTemplate(source.text, objectCache?.status ?? {});
+    const rendered = renderTemplate(source.text, await getPrinterStatusForRender());
     const uri = renderPreviewProvider?.createDocument(rendered, `rendered-${source.description}`);
     if (!uri) {
       throw new Error('Rendered preview provider is not initialized.');
@@ -293,7 +359,7 @@ async function runSelectionOrMacro(): Promise<void> {
 
   try {
     const source = getSelectionOrCurrentMacro(editor);
-    const rendered = renderTemplate(source.text, objectCache?.status ?? {});
+    const rendered = renderTemplate(source.text, await getPrinterStatusForRender());
     const trimmed = rendered.trim();
     if (!trimmed) {
       vscode.window.showWarningMessage('Rendered output is empty; nothing was sent to the printer.');
