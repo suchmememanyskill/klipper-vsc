@@ -6,22 +6,14 @@ export interface MacroSource {
   description: string;
 }
 
-const env = new nunjucks.Environment(undefined, {
+const renderEnv = new nunjucks.Environment(undefined, {
   autoescape: false,
   throwOnUndefined: false,
   trimBlocks: false,
-  lstripBlocks: false,
-  tags: {
-    blockStart: '{%',
-    blockEnd: '%}',
-    variableStart: '{',
-    variableEnd: '}',
-    commentStart: '{#',
-    commentEnd: '#}'
-  }
+  lstripBlocks: false
 });
 
-installKlipperCompatibleFilters(env);
+installKlipperCompatibleFilters(renderEnv);
 
 const conditionEnv = new nunjucks.Environment(undefined, {
   autoescape: false,
@@ -53,7 +45,7 @@ export function getSelectionOrCurrentMacro(editor: vscode.TextEditor): MacroSour
 }
 
 export function renderTemplate(template: string, printerStatus: Record<string, unknown>): string {
-  return removeBlankLines(env.renderString(template, createRenderContext(printerStatus)));
+  return removeBlankLines(renderEnv.renderString(normalizeKlipperVariableTags(template), createRenderContext(printerStatus)));
 }
 
 export function evaluateJinjaCondition(
@@ -176,6 +168,88 @@ function removeBlankLines(value: string): string {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .join('\n');
+}
+
+function normalizeKlipperVariableTags(template: string): string {
+  let output = '';
+  let index = 0;
+
+  while (index < template.length) {
+    if (template.startsWith('{%', index)) {
+      const end = template.indexOf('%}', index + 2);
+      if (end === -1) {
+        output += template.slice(index);
+        break;
+      }
+      output += template.slice(index, end + 2);
+      index = end + 2;
+      continue;
+    }
+
+    if (template.startsWith('{#', index)) {
+      const end = template.indexOf('#}', index + 2);
+      if (end === -1) {
+        output += template.slice(index);
+        break;
+      }
+      output += template.slice(index, end + 2);
+      index = end + 2;
+      continue;
+    }
+
+    if (template.startsWith('{{', index)) {
+      output += '{{';
+      index += 2;
+      continue;
+    }
+
+    if (template[index] === '{') {
+      const end = findKlipperVariableTagEnd(template, index + 1);
+      if (end === -1) {
+        output += template[index];
+        index++;
+        continue;
+      }
+
+      output += `{{ ${template.slice(index + 1, end).trim()} }}`;
+      index = end + 1;
+      continue;
+    }
+
+    output += template[index];
+    index++;
+  }
+
+  return output;
+}
+
+function findKlipperVariableTagEnd(template: string, startIndex: number): number {
+  let quote: '"' | "'" | undefined;
+
+  for (let index = startIndex; index < template.length; index++) {
+    const char = template[index];
+    if (quote) {
+      if (char === '\\') {
+        index++;
+        continue;
+      }
+      if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === '}') {
+      return index;
+    }
+  }
+
+  return -1;
 }
 
 function stripRenderedLineComment(line: string): string {
