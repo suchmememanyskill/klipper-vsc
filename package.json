@@ -3,8 +3,10 @@
   "displayName": "Klipper VSC",
   "description": "VS Code language tools for Klipper configuration files with Moonraker-powered macro assistance.",
   "version": "0.0.1",
-  "publisher": "local-dev",
+  "publisher": "Sims",
   "license": "MIT",
+  "repository": "https://github.com/suchmememanyskill/klipper-vsc",
+  "author": "Sims",
   "engines": {
     "vscode": "^1.92.0"
   },
