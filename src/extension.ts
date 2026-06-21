@@ -42,7 +42,7 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBar.command = 'klipper.connectMoonraker';
   statusBar.text = 'Klipper: disconnected';
   statusBar.tooltip = 'Connect to Moonraker';
-  statusBar.show();
+  updateStatusBarVisibility();
 
   context.subscriptions.push(
     output,
@@ -75,6 +75,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.window.onDidChangeActiveTextEditor((editor) => {
+      updateStatusBarVisibility(editor);
       if (editor?.document.languageId === 'klipper') {
         diagnostics?.update(editor.document);
         conditionHints?.refresh();
@@ -110,6 +111,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   }
   conditionHints.refresh();
+  updateStatusBarVisibility();
 }
 
 export async function deactivate(): Promise<void> {
@@ -387,6 +389,22 @@ function setStatus(text: string, tooltip: string): void {
     statusBar.text = text;
     statusBar.tooltip = tooltip;
   }
+}
+
+function updateStatusBarVisibility(editor = vscode.window.activeTextEditor): void {
+  if (!statusBar) {
+    return;
+  }
+
+  if (editor && isKlipperConfigurationDocument(editor.document)) {
+    statusBar.show();
+  } else {
+    statusBar.hide();
+  }
+}
+
+function isKlipperConfigurationDocument(document: vscode.TextDocument): boolean {
+  return document.languageId === 'klipper' && document.uri.path.toLowerCase().endsWith('.cfg');
 }
 
 function normalizeMoonrakerInput(input: string): string {

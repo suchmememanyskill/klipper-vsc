@@ -76,6 +76,7 @@ The user said Klipper source may be referenced if useful, and to ask if cloning 
 - Render preview, peek render, and render-and-run now force a fresh Moonraker printer object query before evaluating the macro when connected, so rendered expressions are based on current printer state rather than the previous cache snapshot.
 - Visible condition hints now force a quiet Moonraker object refresh every 5 seconds before repainting `-> True` / `-> False`, while still clearing hints when disconnected and refreshing immediately on editor changes.
 - Added a GitHub Actions workflow at `.github/workflows/package-extension.yml` that runs on push, pull request, and manual dispatch. It installs dependencies with `npm ci`, compiles the extension, packages a commit-specific VSIX with `@vscode/vsce`, and uploads it as a workflow artifact.
+- Scoped Klipper command visibility to active Klipper `.cfg` files in both the command palette and editor context menu, and hid the Klipper status bar item unless the active editor is a Klipper `.cfg` document.
 - Installed npm dependencies with `npm install`.
 - Verified the project compiles with `npm run compile`.
 

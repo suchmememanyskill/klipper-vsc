@@ -95,38 +95,44 @@
       "editor/context": [
         {
           "command": "klipper.renderSelectionOrMacro",
-          "when": "editorLangId == klipper",
+          "when": "editorLangId == klipper && resourceExtname == .cfg",
           "group": "navigation@50"
         },
         {
           "command": "klipper.peekRenderedSelectionOrMacro",
-          "when": "editorLangId == klipper",
+          "when": "editorLangId == klipper && resourceExtname == .cfg",
           "group": "navigation@51"
         },
         {
           "command": "klipper.runSelectionOrMacro",
-          "when": "editorLangId == klipper",
+          "when": "editorLangId == klipper && resourceExtname == .cfg",
           "group": "navigation@52"
         }
       ],
       "commandPalette": [
         {
-          "command": "klipper.setMoonrakerConnection"
+          "command": "klipper.setMoonrakerConnection",
+          "when": "editorLangId == klipper && resourceExtname == .cfg"
         },
         {
-          "command": "klipper.connectMoonraker"
+          "command": "klipper.connectMoonraker",
+          "when": "editorLangId == klipper && resourceExtname == .cfg"
         },
         {
-          "command": "klipper.refreshPrinterObjects"
+          "command": "klipper.refreshPrinterObjects",
+          "when": "editorLangId == klipper && resourceExtname == .cfg"
         },
         {
-          "command": "klipper.renderSelectionOrMacro"
+          "command": "klipper.renderSelectionOrMacro",
+          "when": "editorLangId == klipper && resourceExtname == .cfg"
         },
         {
-          "command": "klipper.peekRenderedSelectionOrMacro"
+          "command": "klipper.peekRenderedSelectionOrMacro",
+          "when": "editorLangId == klipper && resourceExtname == .cfg"
         },
         {
-          "command": "klipper.runSelectionOrMacro"
+          "command": "klipper.runSelectionOrMacro",
+          "when": "editorLangId == klipper && resourceExtname == .cfg"
         }
       ]
     }
