@@ -9,7 +9,7 @@ import {
   getSelectionOrCurrentMacro,
   renderTemplate
 } from './macroTools';
-import { ConditionInlayHintsProvider } from './conditionInlayHints';
+import { ConditionHintsController } from './conditionInlayHints';
 import { createRealtimeHoverProvider } from './hoverProvider';
 import {
   RenderPreviewProvider,
@@ -23,15 +23,16 @@ let diagnostics: KlipperDiagnostics | undefined;
 let statusBar: vscode.StatusBarItem | undefined;
 let output: vscode.OutputChannel | undefined;
 let renderPreviewProvider: RenderPreviewProvider | undefined;
-let conditionHints: ConditionInlayHintsProvider | undefined;
+let conditionHints: ConditionHintsController | undefined;
 let conditionHintsRefreshInterval: NodeJS.Timeout | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Klipper VSC');
+  output.appendLine('Klipper VSC extension activated.');
   objectCache = new PrinterObjectCache();
   diagnostics = new KlipperDiagnostics(objectCache);
   renderPreviewProvider = new RenderPreviewProvider();
-  conditionHints = new ConditionInlayHintsProvider(objectCache, () => client?.isConnected ?? false);
+  conditionHints = new ConditionHintsController(objectCache, () => client?.isConnected ?? false, output);
   conditionHintsRefreshInterval = setInterval(() => {
     conditionHints?.refresh();
   }, 1000);
@@ -48,10 +49,6 @@ export function activate(context: vscode.ExtensionContext): void {
     diagnostics,
     renderPreviewProvider,
     conditionHints,
-    vscode.languages.registerInlayHintsProvider(
-      { language: 'klipper', scheme: '*' },
-      conditionHints
-    ),
     new vscode.Disposable(() => {
       if (conditionHintsRefreshInterval) {
         clearInterval(conditionHintsRefreshInterval);
@@ -84,6 +81,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.window.onDidChangeVisibleTextEditors(() => {
       conditionHints?.refresh();
+    }),
+    vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
+      if (event.textEditor.document.languageId === 'klipper') {
+        conditionHints?.refresh();
+      }
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('klipper.diagnostics.enabled')) {
@@ -199,6 +201,7 @@ async function connectMoonraker(context: vscode.ExtensionContext, promptForUrl =
   try {
     await client.connect();
     setStatus('$(plug) Klipper: connected', `Connected to ${url}`);
+    output?.appendLine('Moonraker connected; refreshing printer objects and condition hints.');
     await refreshPrinterObjects();
     vscode.window.showInformationMessage('Connected to Moonraker.');
   } catch (error) {

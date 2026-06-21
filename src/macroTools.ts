@@ -23,6 +23,15 @@ const env = new nunjucks.Environment(undefined, {
 
 installKlipperCompatibleFilters(env);
 
+const conditionEnv = new nunjucks.Environment(undefined, {
+  autoescape: false,
+  throwOnUndefined: false,
+  trimBlocks: false,
+  lstripBlocks: false
+});
+
+installKlipperCompatibleFilters(conditionEnv);
+
 export function getSelectionOrCurrentMacro(editor: vscode.TextEditor): MacroSource {
   const selection = editor.selection;
   if (!selection.isEmpty) {
@@ -53,9 +62,14 @@ export function evaluateJinjaCondition(
   prelude = ''
 ): boolean {
   const context = createRenderContext(printerStatus);
-  const rendered = env.renderString(
-    `${prelude}{% if ${expression} %}true{% else %}false{% endif %}`,
-    context
+  const conditionContext = createConditionContext(expression, prelude, context, true);
+  if (!conditionContext) {
+    throw new Error(`Condition contains unresolved references: ${expression}`);
+  }
+
+  const rendered = conditionEnv.renderString(
+    `{% if ${expression} %}true{% else %}false{% endif %}`,
+    conditionContext
   ).trim().toLowerCase();
 
   if (rendered === 'true') {
@@ -227,12 +241,12 @@ interface KnownValue {
   value: unknown;
 }
 
-function canResolveCondition(
+function createConditionContext(
   expression: string,
   prelude: string,
   context: Record<string, unknown>,
   allowPrinterReferences: boolean
-): boolean {
+): Record<string, unknown> | undefined {
   const known = new Map<string, KnownValue>([
     ['params', { value: context.params }],
     ['rawparams', { value: context.rawparams }]
@@ -250,7 +264,14 @@ function canResolveCondition(
     }
   }
 
-  return expressionReferencesResolve(expression, known);
+  if (!expressionReferencesResolve(expression, known)) {
+    return undefined;
+  }
+
+  return {
+    ...context,
+    ...Object.fromEntries([...known.entries()].map(([name, knownValue]) => [name, knownValue.value]))
+  };
 }
 
 function expressionReferencesResolve(expression: string, known: Map<string, KnownValue>): boolean {
@@ -546,21 +567,24 @@ function maskQuotedStrings(expression: string): string {
   for (let index = 0; index < expression.length; index++) {
     const char = expression[index];
     if (quote) {
-      result += ' ';
       if (char === '\\') {
+        result += ' ';
         index++;
         result += ' ';
         continue;
       }
       if (char === quote) {
         quote = undefined;
+        result += char;
+        continue;
       }
+      result += ' ';
       continue;
     }
 
     if (char === '"' || char === "'") {
       quote = char;
-      result += ' ';
+      result += char;
       continue;
     }
 

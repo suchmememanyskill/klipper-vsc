@@ -4,75 +4,222 @@ import { PrinterObjectCache } from './printerObjects';
 
 type ConnectionStateProvider = () => boolean;
 
-export class ConditionInlayHintsProvider implements vscode.InlayHintsProvider, vscode.Disposable {
-  private readonly changeEmitter = new vscode.EventEmitter<void>();
+export class ConditionHintsController implements vscode.Disposable {
+  private lastRefreshSummary = '';
+  private readonly loggedEvaluationFailures = new Set<string>();
 
-  public readonly onDidChangeInlayHints = this.changeEmitter.event;
+  private readonly decorationType = vscode.window.createTextEditorDecorationType({
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+    after: {
+      color: new vscode.ThemeColor('editorCodeLens.foreground'),
+      margin: '0 0 0 1ch'
+    }
+  });
 
   public constructor(
     private readonly cache: PrinterObjectCache,
-    private readonly isConnected: ConnectionStateProvider
-  ) {}
+    private readonly isConnected: ConnectionStateProvider,
+    private readonly output: vscode.OutputChannel | undefined
+  ) {
+    this.output?.appendLine('Condition hints controller initialized.');
+  }
 
-  public provideInlayHints(
-    document: vscode.TextDocument,
-    range: vscode.Range
-  ): vscode.ProviderResult<vscode.InlayHint[]> {
-    if (document.languageId !== 'klipper') {
-      return [];
+  public refresh(): void {
+    const visibleEditors = vscode.window.visibleTextEditors;
+    const summaries: RefreshSummary[] = [];
+
+    if (visibleEditors.length === 0) {
+      this.logRefreshSummary([{
+        editor: 'none',
+        languageId: 'none',
+        connected: this.isConnected(),
+        enabled: vscode.workspace.getConfiguration('klipper').get<boolean>('conditionHints.enabled', true),
+        objectCount: this.cache.objectNames.length,
+        visibleLineCount: 0,
+        candidateCount: 0,
+        hintCount: 0,
+        skippedCount: 0
+      }]);
+      return;
     }
 
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document.languageId === 'klipper') {
+        summaries.push(this.updateEditor(editor));
+      } else {
+        editor.setDecorations(this.decorationType, []);
+        summaries.push({
+          editor: editor.document.uri.toString(true),
+          languageId: editor.document.languageId,
+          connected: this.isConnected(),
+          enabled: vscode.workspace.getConfiguration('klipper').get<boolean>('conditionHints.enabled', true),
+          objectCount: this.cache.objectNames.length,
+          visibleLineCount: 0,
+          candidateCount: 0,
+          hintCount: 0,
+          skippedCount: 0
+        });
+      }
+    }
+
+    this.logRefreshSummary(summaries);
+  }
+
+  public dispose(): void {
+    this.decorationType.dispose();
+  }
+
+  private updateEditor(editor: vscode.TextEditor): RefreshSummary {
     const enabled = vscode.workspace.getConfiguration('klipper').get<boolean>('conditionHints.enabled', true);
+    const summary: RefreshSummary = {
+      editor: editor.document.uri.toString(true),
+      languageId: editor.document.languageId,
+      connected: this.isConnected(),
+      enabled,
+      objectCount: this.cache.objectNames.length,
+      visibleLineCount: 0,
+      candidateCount: 0,
+      hintCount: 0,
+      skippedCount: 0
+    };
+
     if (!enabled || !this.isConnected()) {
-      return [];
+      editor.setDecorations(this.decorationType, []);
+      return summary;
     }
 
-    const hints: vscode.InlayHint[] = [];
-    const startLine = Math.max(0, range.start.line);
-    const endLine = Math.min(document.lineCount - 1, range.end.line);
+    const lineNumbers = visibleLineNumbers(editor);
+    summary.visibleLineCount = lineNumbers.length;
+    if (lineNumbers.length === 0) {
+      editor.setDecorations(this.decorationType, []);
+      return summary;
+    }
 
-    for (let lineNumber = startLine; lineNumber <= endLine; lineNumber++) {
-      const line = document.lineAt(lineNumber);
-      const expression = getConditionExpression(line.text);
-      if (!expression) {
+    const hints: vscode.DecorationOptions[] = [];
+    for (const lineNumber of lineNumbers) {
+      const line = editor.document.lineAt(lineNumber);
+      const condition = getConditionExpression(line.text);
+      if (!condition) {
         continue;
       }
+      summary.candidateCount++;
 
       let value: boolean;
       try {
         value = evaluateJinjaCondition(
-          expression,
+          condition.expression,
           this.cache.status,
-          getSetPrelude(document, lineNumber)
+          getSetPrelude(editor.document, lineNumber)
         );
-      } catch {
+      } catch (error) {
+        summary.skippedCount++;
+        this.logEvaluationFailure(editor, lineNumber, condition.expression, error);
         continue;
       }
 
-      const hint = new vscode.InlayHint(
-        line.range.end,
-        `-> ${value ? 'True' : 'False'}`,
-        vscode.InlayHintKind.Type
-      );
-      hint.paddingLeft = true;
-      hints.push(hint);
+      hints.push({
+        range: new vscode.Range(
+          new vscode.Position(lineNumber, condition.endCharacter),
+          new vscode.Position(lineNumber, condition.endCharacter)
+        ),
+        renderOptions: {
+          after: {
+            contentText: ` -> ${value ? 'True' : 'False'}`
+          }
+        }
+      });
     }
 
-    return hints;
+    editor.setDecorations(this.decorationType, hints);
+    summary.hintCount = hints.length;
+    return summary;
   }
 
-  public refresh(): void {
-    this.changeEmitter.fire();
+  private logRefreshSummary(summaries: RefreshSummary[]): void {
+    const text = summaries
+      .map((summary) => {
+        return [
+          `editor=${summary.editor}`,
+          `language=${summary.languageId}`,
+          `connected=${summary.connected}`,
+          `enabled=${summary.enabled}`,
+          `objects=${summary.objectCount}`,
+          `visibleLines=${summary.visibleLineCount}`,
+          `conditions=${summary.candidateCount}`,
+          `hints=${summary.hintCount}`,
+          `skipped=${summary.skippedCount}`
+        ].join(' ');
+      })
+      .join(' | ');
+
+    if (text === this.lastRefreshSummary) {
+      return;
+    }
+
+    this.lastRefreshSummary = text;
+    this.output?.appendLine(`Condition hints refresh: ${text}`);
   }
 
-  public dispose(): void {
-    this.changeEmitter.dispose();
+  private logEvaluationFailure(
+    editor: vscode.TextEditor,
+    lineNumber: number,
+    expression: string,
+    error: unknown
+  ): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const key = `${editor.document.uri.toString(true)}:${lineNumber}:${expression}:${message}`;
+    if (this.loggedEvaluationFailures.has(key)) {
+      return;
+    }
+
+    this.loggedEvaluationFailures.add(key);
+    this.output?.appendLine(
+      `Condition hint skipped at ${editor.document.uri.toString(true)}:${lineNumber + 1}: "${expression}" (${message})`
+    );
   }
 }
 
-function getConditionExpression(line: string): string | undefined {
+interface RefreshSummary {
+  editor: string;
+  languageId: string;
+  connected: boolean;
+  enabled: boolean | undefined;
+  objectCount: number;
+  visibleLineCount: number;
+  candidateCount: number;
+  hintCount: number;
+  skippedCount: number;
+}
+
+function visibleLineNumbers(editor: vscode.TextEditor): number[] {
+  const lines = new Set<number>();
+  for (const range of editor.visibleRanges) {
+    const startLine = Math.max(0, range.start.line);
+    const endLine = Math.min(editor.document.lineCount - 1, range.end.line);
+    for (let line = startLine; line <= endLine; line++) {
+      lines.add(line);
+    }
+  }
+
+  if (lines.size === 0) {
+    for (let line = 0; line < editor.document.lineCount; line++) {
+      lines.add(line);
+    }
+  }
+
+  return [...lines].sort((a, b) => a - b);
+}
+
+function getConditionExpression(line: string): { expression: string; endCharacter: number } | undefined {
   const match = /\{%-?\s*(?:if|elif)\s+([\s\S]*?)\s*-?%\}/.exec(line);
-  return match?.[1].trim();
+  if (!match) {
+    return undefined;
+  }
+
+  return {
+    expression: match[1].trim(),
+    endCharacter: match.index + match[0].length
+  };
 }
 
 function getSetPrelude(document: vscode.TextDocument, beforeLine: number): string {
