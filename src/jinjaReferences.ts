@@ -5,6 +5,8 @@ export interface ResolvedReference {
   range: vscode.Range;
   path?: string[];
   value?: unknown;
+  valueExpression?: string;
+  prelude?: string;
   sourceExpression?: string;
 }
 
@@ -43,6 +45,16 @@ export function getResolvedReferenceAtPosition(
     return {
       expression: word,
       value: alias.value,
+      range: wordRange,
+      sourceExpression: alias.sourceExpression
+    };
+  }
+
+  if (alias.kind === 'expression') {
+    return {
+      expression: word,
+      valueExpression: alias.expression,
+      prelude: alias.prelude,
       range: wordRange,
       sourceExpression: alias.sourceExpression
     };
@@ -119,7 +131,8 @@ function findReferences(
 
 type AliasValue =
   | { kind: 'path'; path: string[] }
-  | { kind: 'value'; value: unknown; sourceExpression?: string };
+  | { kind: 'value'; value: unknown; sourceExpression?: string }
+  | { kind: 'expression'; expression: string; prelude: string; sourceExpression?: string };
 
 function collectAliases(document: vscode.TextDocument, beforeOffset: number): Map<string, AliasValue> {
   const aliases = new Map<string, AliasValue>();
@@ -157,6 +170,16 @@ function collectAliases(document: vscode.TextDocument, beforeOffset: number): Ma
         kind: 'value',
         value: literalDefault.value,
         sourceExpression: `${expression}|default(...)`
+      });
+      continue;
+    }
+
+    if (parseDefaultFilterExpression(rawExpression)) {
+      aliases.set(variableName, {
+        kind: 'expression',
+        expression: rawExpression,
+        prelude: text.slice(0, assignmentStart),
+        sourceExpression: rawExpression
       });
     }
   }

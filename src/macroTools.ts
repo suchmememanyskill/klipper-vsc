@@ -74,6 +74,29 @@ export function evaluateJinjaCondition(
   throw new Error(`Condition did not render to a boolean: ${rendered}`);
 }
 
+export function evaluateJinjaExpressionValue(
+  expression: string,
+  printerStatus: Record<string, unknown>,
+  prelude = ''
+): unknown {
+  const context = createRenderContext(printerStatus);
+  const expressionContext = createConditionContext(expression, prelude, context, true);
+  if (!expressionContext) {
+    throw new Error(`Expression contains unresolved references: ${expression}`);
+  }
+
+  const rendered = conditionEnv.renderString(
+    `{{ (${expression}) | __klipperJson }}`,
+    expressionContext
+  ).trim();
+  const parsed = JSON.parse(rendered) as { value?: unknown };
+  if (!Object.prototype.hasOwnProperty.call(parsed, 'value')) {
+    throw new Error(`Expression did not render to a value: ${expression}`);
+  }
+
+  return parsed.value;
+}
+
 function createRenderContext(printerStatus: Record<string, unknown>): Record<string, unknown> {
   return {
     printer: withKlipperArrayAliases(printerStatus),

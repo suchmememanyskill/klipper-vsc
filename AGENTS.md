@@ -90,6 +90,7 @@ The user said Klipper source may be referenced if useful, and to ask if cloning 
 - Fixed hover/completion path resolution for Moonraker arrays. Array values now support numeric indexes and Klipper-style axis aliases: `x`, `y`, `z`, and `e`. This fixes paths such as `printer.gcode_move.position.z`, where Moonraker reports `position` as `[x, y, z, e]`.
 - Local rendering/evaluation now clones printer arrays with Klipper-style `x`, `y`, `z`, and `e` aliases so expressions such as `printer.gcode_move.position.z` can evaluate.
 - Fixed Jinja `{% set %}` variables whose value falls back through `default(...)` to another resolved reference. Hover/completion alias tracking and condition-hint evaluation now preserve reference paths through fallback expressions such as `params.EXTRUDER_TEMP|default(settings.extruder_temp.loading)|int`, so the assigned variable resolves through the referenced printer object instead of remaining unknown.
+- Follow-up fix: complex `default(...)` fallback expressions that are not simple paths, such as `printer.heater_bed.target if printer.heater_bed.target > 0 else 60`, are now evaluated with the current printer context for bare variable hover. Direct reference fallbacks still preserve printer paths.
 
 ## TODO
 
