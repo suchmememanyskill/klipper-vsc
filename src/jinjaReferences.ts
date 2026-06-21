@@ -145,6 +145,12 @@ function collectAliases(document: vscode.TextDocument, beforeOffset: number): Ma
       continue;
     }
 
+    const defaultReferencePath = resolveDefaultReferencePath(rawExpression, aliases);
+    if (defaultReferencePath) {
+      aliases.set(variableName, { kind: 'path', path: defaultReferencePath });
+      continue;
+    }
+
     const literalDefault = parseDefaultFilterValue(rawExpression);
     if (literalDefault.resolved) {
       aliases.set(variableName, {
@@ -156,6 +162,18 @@ function collectAliases(document: vscode.TextDocument, beforeOffset: number): Ma
   }
 
   return aliases;
+}
+
+function resolveDefaultReferencePath(
+  expression: string,
+  aliases: Map<string, AliasValue>
+): string[] | undefined {
+  const fallbackExpression = parseDefaultFilterExpression(expression);
+  if (!fallbackExpression) {
+    return undefined;
+  }
+
+  return resolveReferenceExpression(stripFilters(fallbackExpression), aliases);
 }
 
 function resolveReferenceExpression(
@@ -291,15 +309,15 @@ function stripFilters(expression: string): string {
 }
 
 function parseDefaultFilterValue(expression: string): { resolved: boolean; value: unknown } {
-  const match = /\|\s*default\s*\(\s*([\s\S]*?)\s*\)/.exec(expression);
-  if (!match) {
+  const fallbackExpression = parseDefaultFilterExpression(expression);
+  if (!fallbackExpression) {
     return {
       resolved: false,
       value: undefined
     };
   }
 
-  const raw = match[1].trim();
+  const raw = fallbackExpression.trim();
   if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
     return {
       resolved: true,
@@ -341,6 +359,48 @@ function parseDefaultFilterValue(expression: string): { resolved: boolean; value
     resolved: false,
     value: undefined
   };
+}
+
+function parseDefaultFilterExpression(expression: string): string | undefined {
+  const match = /\|\s*default\s*\(/.exec(expression);
+  if (!match) {
+    return undefined;
+  }
+
+  const startIndex = match.index + match[0].length;
+  let quote: '"' | "'" | undefined;
+  let parenDepth = 1;
+
+  for (let index = startIndex; index < expression.length; index++) {
+    const char = expression[index];
+    if (quote) {
+      if (char === '\\') {
+        index++;
+        continue;
+      }
+      if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '(') {
+      parenDepth++;
+      continue;
+    }
+    if (char === ')') {
+      parenDepth--;
+      if (parenDepth === 0) {
+        return expression.slice(startIndex, index).trim();
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function formatPrinterPath(path: string[]): string {

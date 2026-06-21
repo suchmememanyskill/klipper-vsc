@@ -314,6 +314,13 @@ function stringifyFilterValue(value: unknown): string {
 
 interface KnownValue {
   value: unknown;
+  path?: string[];
+}
+
+interface ResolvedValue {
+  resolved: boolean;
+  value: unknown;
+  path?: string[];
 }
 
 function createConditionContext(
@@ -327,7 +334,7 @@ function createConditionContext(
     ['rawparams', { value: context.rawparams }]
   ]);
   if (allowPrinterReferences) {
-    known.set('printer', { value: context.printer });
+    known.set('printer', { value: context.printer, path: [] });
   }
 
   const setPattern = /\{%\s*set\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([\s\S]*?)%\}/g;
@@ -335,7 +342,7 @@ function createConditionContext(
   while ((match = setPattern.exec(prelude)) !== null) {
     const value = resolveExpressionValue(match[2].trim(), known);
     if (value.resolved) {
-      known.set(match[1], { value: value.value });
+      known.set(match[1], { value: value.value, path: value.path });
     }
   }
 
@@ -367,21 +374,17 @@ function expressionReferencesResolve(expression: string, known: Map<string, Know
 function resolveExpressionValue(
   expression: string,
   known: Map<string, KnownValue>
-): { resolved: boolean; value: unknown } {
+): ResolvedValue {
   const evaluated = evaluateKnownExpressionValue(expression, known);
   if (evaluated.resolved) {
     return evaluated;
   }
 
-  const defaultValue = parseDefaultFilterValue(expression);
   const baseExpression = stripTopLevelFilters(expression);
   const reference = findExpressionReferences(baseExpression)[0];
 
   if (!reference || reference.expression !== baseExpression.trim()) {
-    return {
-      resolved: defaultValue.resolved,
-      value: defaultValue.value
-    };
+    return resolveDefaultFilterValue(expression, known);
   }
 
   const value = resolveReferenceValue(reference.expression, known);
@@ -389,13 +392,13 @@ function resolveExpressionValue(
     return value;
   }
 
-  return defaultValue;
+  return resolveDefaultFilterValue(expression, known);
 }
 
 function evaluateKnownExpressionValue(
   expression: string,
   known: Map<string, KnownValue>
-): { resolved: boolean; value: unknown } {
+): ResolvedValue {
   if (!expressionReferencesResolve(expression, known)) {
     return {
       resolved: false,
@@ -435,7 +438,7 @@ function knownValuesToContext(known: Map<string, KnownValue>): Record<string, un
 function resolveReferenceValue(
   expression: string,
   known: Map<string, KnownValue>
-): { resolved: boolean; value: unknown } {
+): ResolvedValue {
   const rootMatch = /^[A-Za-z_][A-Za-z0-9_]*/.exec(expression);
   if (!rootMatch) {
     return {
@@ -453,22 +456,24 @@ function resolveReferenceValue(
   }
 
   const suffix = expression.slice(root.length);
-  const path = parsePathSuffix(suffix);
-  if (!path) {
+  const suffixPath = parsePathSuffix(suffix);
+  if (!suffixPath) {
     return {
       resolved: false,
       value: undefined
     };
   }
 
-  let current = known.get(root)?.value;
-  for (const segment of path) {
+  const rootValue = known.get(root);
+  let current = rootValue?.value;
+  for (const segment of suffixPath) {
     current = getPathValue(current, segment);
   }
 
   return {
     resolved: true,
-    value: current
+    value: current,
+    path: rootValue?.path ? [...rootValue.path, ...suffixPath] : undefined
   };
 }
 
@@ -502,16 +507,36 @@ function referenceHasDefaultFilter(expression: string, referenceEnd: number): bo
   return /^\s*\|\s*default\s*\(/.test(expression.slice(referenceEnd));
 }
 
-function parseDefaultFilterValue(expression: string): { resolved: boolean; value: unknown } {
-  const match = /\|\s*default\s*\(\s*([\s\S]*?)\s*\)/.exec(expression);
-  if (!match) {
+function resolveDefaultFilterValue(
+  expression: string,
+  known: Map<string, KnownValue>
+): ResolvedValue {
+  const literal = parseDefaultFilterValue(expression);
+  if (literal.resolved) {
+    return literal;
+  }
+
+  const fallbackExpression = parseDefaultFilterExpression(expression);
+  if (!fallbackExpression) {
     return {
       resolved: false,
       value: undefined
     };
   }
 
-  const raw = match[1].trim();
+  return resolveExpressionValue(fallbackExpression, known);
+}
+
+function parseDefaultFilterValue(expression: string): { resolved: boolean; value: unknown } {
+  const fallbackExpression = parseDefaultFilterExpression(expression);
+  if (!fallbackExpression) {
+    return {
+      resolved: false,
+      value: undefined
+    };
+  }
+
+  const raw = fallbackExpression.trim();
   if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
     return {
       resolved: true,
@@ -553,6 +578,48 @@ function parseDefaultFilterValue(expression: string): { resolved: boolean; value
     resolved: false,
     value: undefined
   };
+}
+
+function parseDefaultFilterExpression(expression: string): string | undefined {
+  const match = /\|\s*default\s*\(/.exec(expression);
+  if (!match) {
+    return undefined;
+  }
+
+  const startIndex = match.index + match[0].length;
+  let quote: '"' | "'" | undefined;
+  let parenDepth = 1;
+
+  for (let index = startIndex; index < expression.length; index++) {
+    const char = expression[index];
+    if (quote) {
+      if (char === '\\') {
+        index++;
+        continue;
+      }
+      if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '(') {
+      parenDepth++;
+      continue;
+    }
+    if (char === ')') {
+      parenDepth--;
+      if (parenDepth === 0) {
+        return expression.slice(startIndex, index).trim();
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function stripTopLevelFilters(expression: string): string {
